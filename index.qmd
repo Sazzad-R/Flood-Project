@@ -118,3 +118,288 @@ Clear summary adequately describing the results and putting them in context. Dis
 # References
 
 All sources are cited in a consistent manner
+
+
+###
+
+# Introduction
+
+Buffalo Creek, located in Erie County, New York, has a history of flooding that can threaten local infrastructure.  
+This project aims to identify areas along Buffalo Creek that may put buildings or other structures at risk of flooding.  
+
+The analysis combines publicly available elevation data, hydrological flowlines, and OpenStreetMap building data to generate spatial visualizations of flood buffers and at-risk infrastructure.  
+
+The main questions addressed are:
+
+1. Which buildings fall within potential flood zones of Buffalo Creek?
+2. How many buildings are at risk within a 500-meter buffer of the stream?
+3. Can this workflow be reproduced using publicly available data and code?
+
+---
+
+# Data
+
+The analysis uses the following sources:
+
+- **Digital Elevation Model (DEM):** downloaded automatically from AWS terrain using the `elevatr` package. Provides elevation information to help understand terrain and flood flow.
+- **Hydrological data:** downloaded from NHDPlus High-Resolution using `nhdplusTools`. Contains stream and river networks.
+- **Buildings:** downloaded from OpenStreetMap using `osmdata`. Used to identify structures potentially at risk.
+
+
+
+# Load Libraries
+
+These libraries allow downloading, processing, and visualizing both raster and vector spatial data, and creating figures and tables for the HTML report.
+
+# List of required packages
+packages <- c(
+  "nhdplusTools",
+  "sf",
+  "terra",
+  "elevatr",
+  "dataRetrieval",
+  "osmdata",
+  "ggplot2",
+  "dplyr",
+  "leaflet",
+  "htmlwidgets",
+  "knitr",
+  "tmap"
+)
+
+# Install any packages that are not already installed
+installed <- packages %in% rownames(installed.packages())
+if(any(!installed)) {
+  install.packages(packages[!installed])
+}
+
+```{r message=FALSE, warning=FALSE}
+library(nhdplusTools)
+library(sf)
+library(terra)
+library(elevatr)
+library(dataRetrieval)
+library(osmdata)
+library(ggplot2)
+library(dplyr)
+library(leaflet)
+library(htmlwidgets)
+library(knitr)
+library(tmap)
+```
+
+
+## Digital Elevation Model (DEM)
+
+We define a rectangular study area for Buffalo Creek.
+
+DEM is downloaded automatically from AWS using elevatr.
+
+This raster shows elevation values which help understand which areas are prone to flooding.
+
+```{r message=FALSE, warning=FALSE}
+#Define Buffalo Creek study area
+bbox_coords <- c(xmin = -78.85, ymin = 42.80, xmax = -78.65, ymax = 42.92)
+study_bbox <- st_bbox(bbox_coords, crs = 4326)
+study_area <- st_as_sfc(study_bbox) |> st_sf()
+
+#Download DEM
+dem_raw <- get_elev_raster(locations = study_area, z = 13, src = "aws")
+dem <- rast(dem_raw)
+writeRaster(dem, "data/buffalo_dem.tif", overwrite = TRUE)
+
+print(paste("DEM Resolution:", res(dem), "meters"))
+rng <- minmax(dem)
+print(paste("Elevation range:", round(rng[1]), "to", round(rng[2]), "meters"))
+
+#Visualize DEM
+
+plot(dem)
+```
+
+## Stream Extraction
+
+Hydrological flowlines are downloaded to identify the stream network.
+
+Only flowlines containing "Buffalo" are selected.
+
+This is the basis for creating flood buffers.
+
+```{r message=FALSE, warning=FALSE}
+library(nhdplusTools)
+library(sf)
+
+# Define area of interest as sf polygon (not bbox)
+
+aoi <- st_as_sfc(st_bbox(c(
+  xmin = -78.9,
+  ymin = 42.75,
+  xmax = -78.6,
+  ymax = 42.95
+), crs = 4326))
+
+
+
+# Download flowlines for the area
+flowlines <- get_3dhp(AOI = aoi, type = "flowline")
+
+# Filter for Buffalo Creek
+buffalo_creek <- flowlines |>
+  filter(grepl("Buffalo", gnisidlabel, ignore.case = TRUE))
+
+# Visualize just the stream
+plot(st_geometry(buffalo_creek), col = "blue", lwd = 2, main = "Buffalo Creek Stream Network")
+```
+
+
+## Flood Buffer Creation
+
+We create a 500-meter buffer around Buffalo Creek to represent potential flood risk areas.
+
+Buffer is transformed back to WGS84 for mapping and spatial intersection with buildings.
+
+```{r message=FALSE, warning=FALSE}
+buffalo_creek_proj <- st_transform(buffalo_creek, crs = 32617) # UTM zone for your area
+stream_buffer <- st_buffer(buffalo_creek_proj, dist = 500) # 500 meters
+
+# Transform back to WGS84 for plotting or OSM intersection
+stream_buffer_wgs84 <- st_transform(stream_buffer, crs = 4326)
+
+# Plot buffer and stream
+plot(st_geometry(stream_buffer_wgs84), col = rgb(1,0,0,0.2), main = "Buffalo Creek 500m Flood Buffer")
+plot(st_geometry(buffalo_creek), col = "blue", lwd = 2, add = TRUE)
+
+
+```
+
+## Building Data from OpenStreetMap
+
+Building footprints are downloaded and transformed to match buffer CRS.
+
+Intersection identifies buildings inside the 500-meter flood buffer.
+
+```{r message=FALSE, warning=FALSE}
+# Define the study area polygon for OSM query
+bbox <- st_bbox(stream_buffer_wgs84)
+
+# Get buildings from OSM
+buildings_osm <- opq(bbox = bbox) %>%
+  add_osm_feature(key = "building") %>%
+  osmdata_sf()
+
+# Extract building polygons
+buildings <- buildings_osm$osm_polygons
+
+# Ensure same CRS for intersection
+buildings <- st_transform(buildings, st_crs(stream_buffer_wgs84))
+```
+
+## Identify Buildings at Risk
+
+```{r message=FALSE, warning=FALSE}
+buildings_at_risk <- st_intersection(buildings, stream_buffer_wgs84)
+
+# Check how many buildings are affected
+cat("Number of buildings at risk:", nrow(buildings_at_risk), "\n")
+
+```
+## Visualization
+The map shows flood buffer in red, Buffalo Creek in blue, all buildings in grey, and buildings at risk in orange.
+
+This provides a clear visualization of potential risk areas.
+
+```{r message=FALSE, warning=FALSE}
+library(tmap)
+
+# Static plot for Quarto rendering
+tmap_mode("plot")
+
+tm_shape(stream_buffer_wgs84) +
+  tm_fill(col = "red", alpha = 0.2) +
+  tm_shape(buffalo_creek) +
+  tm_lines(col = "blue") +
+  tm_shape(buildings) +
+  tm_polygons(col = "grey", alpha = 0.5) +
+  tm_shape(buildings_at_risk) +
+  tm_polygons(col = "orange", alpha = 0.8)
+
+
+```
+## Summary Table and Plot
+
+Out of 11,986 buldings 2266 buldings are at risk of blood if it excides 500 meters from the stream.
+
+```{r message=FALSE, warning=FALSE}
+library(ggplot2)
+
+# Total number of buildings
+total_buildings <- nrow(buildings)
+
+# Number of buildings at risk
+at_risk <- nrow(buildings_at_risk)
+
+# Number of buildings not at risk
+not_at_risk <- total_buildings - at_risk
+
+# Create summary data frame
+summary_df <- data.frame(
+  Status = c("At Risk", "Not at Risk"),
+  Count = c(at_risk, not_at_risk)
+)
+
+# Print summary table
+knitr::kable(summary_df, caption = "Summary of Buildings at Risk")
+
+# Plot the summary
+ggplot(summary_df, aes(x = Status, y = Count, fill = Status)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = Count), vjust = -0.5, size = 5) +
+  scale_fill_manual(values = c("orange", "grey")) +
+  labs(title = "Buildings at Risk vs Not at Risk",
+       x = "", y = "Number of Buildings") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        text = element_text(size = 14))
+
+```
+
+
+
+
+## Interactive Leaflet Map
+```{r message=FALSE, warning=FALSE}
+library(leaflet)
+library(sf)
+
+# Transform geometries to WGS84 for Leaflet
+buffalo_creek_wgs84 <- st_transform(buffalo_creek, 4326)
+stream_buffer_wgs84 <- st_transform(stream_buffer, 4326)
+buildings_wgs84 <- st_transform(buildings, 4326)
+buildings_at_risk_wgs84 <- st_transform(buildings_at_risk, 4326)
+
+# Create Leaflet map
+leaflet() %>%
+  addProviderTiles("OpenStreetMap") %>%
+  addPolylines(data = buffalo_creek_wgs84, color = "blue", weight = 3,
+               label = ~gnisidlabel, group = "Stream") %>%
+  addPolygons(data = stream_buffer_wgs84, color = "red", weight = 1, fillOpacity = 0.2,
+              label = "500m Flood Buffer", group = "Flood Buffer") %>%
+  addPolygons(data = buildings_wgs84, color = "grey", weight = 1, fillOpacity = 0.5,
+              label = ~osm_id, group = "All Buildings") %>%
+  addPolygons(data = buildings_at_risk_wgs84, color = "orange", weight = 2, fillOpacity = 0.8,
+              label = ~osm_id, group = "Buildings at Risk") %>%
+  addLayersControl(
+    overlayGroups = c("Stream", "Flood Buffer", "All Buildings", "Buildings at Risk"),
+    options = layersControlOptions(collapsed = FALSE)
+  ) %>%
+  addLegend(position = "bottomright",
+            colors = c("blue", "red", "grey", "orange"),
+            labels = c("Stream", "Flood Buffer", "All Buildings", "Buildings at Risk"),
+            opacity = 0.8)
+```
+## Conclusions
+
+A 500-meter buffer around Buffalo Creek identifies buildings potentially exposed to flooding.
+
+Future work could include interactive maps, multiple flood return periods, and more detailed infrastructure data.
+
