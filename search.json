@@ -1,0 +1,86 @@
+[
+  {
+    "objectID": "index.html",
+    "href": "index.html",
+    "title": "Buffalo Creek Flood Risk Assessment",
+    "section": "",
+    "text": "Buffalo Creek, located in Erie County, New York, has a history of flooding that can threaten local infrastructure.\nThis project aims to identify areas along Buffalo Creek that may put buildings or other structures at risk of flooding.\nThe analysis combines publicly available elevation data, hydrological flowlines, and OpenStreetMap building data to generate spatial visualizations of flood buffers and at-risk infrastructure.\nThe main questions addressed are:\n\nWhich buildings fall within potential flood zones of Buffalo Creek?\nHow many buildings are at risk within a 500-meter buffer of the stream?\nCan this workflow be reproduced using publicly available data and code?"
+  },
+  {
+    "objectID": "index.html#digital-elevation-model-dem",
+    "href": "index.html#digital-elevation-model-dem",
+    "title": "Buffalo Creek Flood Risk Assessment",
+    "section": "Digital Elevation Model (DEM)",
+    "text": "Digital Elevation Model (DEM)\nWe define a rectangular study area for Buffalo Creek.\nDEM is downloaded automatically from AWS using elevatr.\nThis raster shows elevation values which help understand which areas are prone to flooding.\n\n\nCode\n#Define Buffalo Creek study area\nbbox_coords &lt;- c(xmin = -78.85, ymin = 42.80, xmax = -78.65, ymax = 42.92)\nstudy_bbox &lt;- st_bbox(bbox_coords, crs = 4326)\nstudy_area &lt;- st_as_sfc(study_bbox) |&gt; st_sf()\n\n#Download DEM\ndem_raw &lt;- get_elev_raster(locations = study_area, z = 13, src = \"aws\")\ndem &lt;- rast(dem_raw)\nwriteRaster(dem, \"data/buffalo_dem.tif\", overwrite = TRUE)\n\nprint(paste(\"DEM Resolution:\", res(dem), \"meters\"))\n\n\n[1] \"DEM Resolution: 7.72655519051906e-05 meters\"\n[2] \"DEM Resolution: 7.72655519051902e-05 meters\"\n\n\nCode\nrng &lt;- minmax(dem)\nprint(paste(\"Elevation range:\", round(rng[1]), \"to\", round(rng[2]), \"meters\"))\n\n\n[1] \"Elevation range: Inf to -Inf meters\"\n\n\nCode\n#Visualize DEM\n\nplot(dem)"
+  },
+  {
+    "objectID": "index.html#stream-extraction",
+    "href": "index.html#stream-extraction",
+    "title": "Buffalo Creek Flood Risk Assessment",
+    "section": "Stream Extraction",
+    "text": "Stream Extraction\nHydrological flowlines are downloaded to identify the stream network.\nOnly flowlines containing “Buffalo” are selected.\nThis is the basis for creating flood buffers.\n\n\nCode\nlibrary(nhdplusTools)\nlibrary(sf)\n\n# Define area of interest as sf polygon (not bbox)\n\naoi &lt;- st_as_sfc(st_bbox(c(\n  xmin = -78.9,\n  ymin = 42.75,\n  xmax = -78.6,\n  ymax = 42.95\n), crs = 4326))\n\n\n\n# Download flowlines for the area\nflowlines &lt;- get_3dhp(AOI = aoi, type = \"flowline\")\n\n# Filter for Buffalo Creek\nbuffalo_creek &lt;- flowlines |&gt;\n  filter(grepl(\"Buffalo\", gnisidlabel, ignore.case = TRUE))\n\n# Visualize just the stream\nplot(st_geometry(buffalo_creek), col = \"blue\", lwd = 2, main = \"Buffalo Creek Stream Network\")"
+  },
+  {
+    "objectID": "index.html#flood-buffer-creation",
+    "href": "index.html#flood-buffer-creation",
+    "title": "Buffalo Creek Flood Risk Assessment",
+    "section": "Flood Buffer Creation",
+    "text": "Flood Buffer Creation\nWe create a 500-meter buffer around Buffalo Creek to represent potential flood risk areas.\nBuffer is transformed back to WGS84 for mapping and spatial intersection with buildings.\n\n\nCode\nbuffalo_creek_proj &lt;- st_transform(buffalo_creek, crs = 32617) # UTM zone for your area\nstream_buffer &lt;- st_buffer(buffalo_creek_proj, dist = 500) # 500 meters\n\n# Transform back to WGS84 for plotting or OSM intersection\nstream_buffer_wgs84 &lt;- st_transform(stream_buffer, crs = 4326)\n\n# Plot buffer and stream\nplot(st_geometry(stream_buffer_wgs84), col = rgb(1,0,0,0.2), main = \"Buffalo Creek 500m Flood Buffer\")\nplot(st_geometry(buffalo_creek), col = \"blue\", lwd = 2, add = TRUE)"
+  },
+  {
+    "objectID": "index.html#building-data-from-openstreetmap",
+    "href": "index.html#building-data-from-openstreetmap",
+    "title": "Buffalo Creek Flood Risk Assessment",
+    "section": "Building Data from OpenStreetMap",
+    "text": "Building Data from OpenStreetMap\nBuilding footprints are downloaded and transformed to match buffer CRS.\nIntersection identifies buildings inside the 500-meter flood buffer.\n\n\nCode\n# Define the study area polygon for OSM query\nbbox &lt;- st_bbox(stream_buffer_wgs84)\n\n# Get buildings from OSM\nbuildings_osm &lt;- opq(bbox = bbox) %&gt;%\n  add_osm_feature(key = \"building\") %&gt;%\n  osmdata_sf()\n\n# Extract building polygons\nbuildings &lt;- buildings_osm$osm_polygons\n\n# Ensure same CRS for intersection\nbuildings &lt;- st_transform(buildings, st_crs(stream_buffer_wgs84))"
+  },
+  {
+    "objectID": "index.html#identify-buildings-at-risk",
+    "href": "index.html#identify-buildings-at-risk",
+    "title": "Buffalo Creek Flood Risk Assessment",
+    "section": "Identify Buildings at Risk",
+    "text": "Identify Buildings at Risk\n\n\nCode\nbuildings_at_risk &lt;- st_intersection(buildings, stream_buffer_wgs84)\n\n# Check how many buildings are affected\ncat(\"Number of buildings at risk:\", nrow(buildings_at_risk), \"\\n\")\n\n\nNumber of buildings at risk: 2266"
+  },
+  {
+    "objectID": "index.html#visualization",
+    "href": "index.html#visualization",
+    "title": "Buffalo Creek Flood Risk Assessment",
+    "section": "Visualization",
+    "text": "Visualization\nThe map shows flood buffer in red, Buffalo Creek in blue, all buildings in grey, and buildings at risk in orange.\nThis provides a clear visualization of potential risk areas.\n\n\nCode\nlibrary(tmap)\n\n# Static plot for Quarto rendering\ntmap_mode(\"plot\")\n\ntm_shape(stream_buffer_wgs84) +\n  tm_fill(col = \"red\", alpha = 0.2) +\n  tm_shape(buffalo_creek) +\n  tm_lines(col = \"blue\") +\n  tm_shape(buildings) +\n  tm_polygons(col = \"grey\", alpha = 0.5) +\n  tm_shape(buildings_at_risk) +\n  tm_polygons(col = \"orange\", alpha = 0.8)"
+  },
+  {
+    "objectID": "index.html#summary-table-and-plot",
+    "href": "index.html#summary-table-and-plot",
+    "title": "Buffalo Creek Flood Risk Assessment",
+    "section": "Summary Table and Plot",
+    "text": "Summary Table and Plot\nOut of 11,986 buldings 2266 buldings are at risk of blood if it excides 500 meters from the stream.\n\n\nCode\nlibrary(ggplot2)\n\n# Total number of buildings\ntotal_buildings &lt;- nrow(buildings)\n\n# Number of buildings at risk\nat_risk &lt;- nrow(buildings_at_risk)\n\n# Number of buildings not at risk\nnot_at_risk &lt;- total_buildings - at_risk\n\n# Create summary data frame\nsummary_df &lt;- data.frame(\n  Status = c(\"At Risk\", \"Not at Risk\"),\n  Count = c(at_risk, not_at_risk)\n)\n\n# Print summary table\nknitr::kable(summary_df, caption = \"Summary of Buildings at Risk\")\n\n\n\nSummary of Buildings at Risk\n\n\nStatus\nCount\n\n\n\n\nAt Risk\n2266\n\n\nNot at Risk\n9720\n\n\n\n\n\nCode\n# Plot the summary\nggplot(summary_df, aes(x = Status, y = Count, fill = Status)) +\n  geom_bar(stat = \"identity\") +\n  geom_text(aes(label = Count), vjust = -0.5, size = 5) +\n  scale_fill_manual(values = c(\"orange\", \"grey\")) +\n  labs(title = \"Buildings at Risk vs Not at Risk\",\n       x = \"\", y = \"Number of Buildings\") +\n  theme_minimal() +\n  theme(legend.position = \"none\",\n        text = element_text(size = 14))"
+  },
+  {
+    "objectID": "index.html#interactive-leaflet-map",
+    "href": "index.html#interactive-leaflet-map",
+    "title": "Buffalo Creek Flood Risk Assessment",
+    "section": "Interactive Leaflet Map",
+    "text": "Interactive Leaflet Map\n\n\nCode\nlibrary(leaflet)\nlibrary(sf)\n\n# Transform geometries to WGS84 for Leaflet\nbuffalo_creek_wgs84 &lt;- st_transform(buffalo_creek, 4326)\nstream_buffer_wgs84 &lt;- st_transform(stream_buffer, 4326)\nbuildings_wgs84 &lt;- st_transform(buildings, 4326)\nbuildings_at_risk_wgs84 &lt;- st_transform(buildings_at_risk, 4326)\n\n# Create Leaflet map\nleaflet() %&gt;%\n  addProviderTiles(\"OpenStreetMap\") %&gt;%\n  addPolylines(data = buffalo_creek_wgs84, color = \"blue\", weight = 3,\n               label = ~gnisidlabel, group = \"Stream\") %&gt;%\n  addPolygons(data = stream_buffer_wgs84, color = \"red\", weight = 1, fillOpacity = 0.2,\n              label = \"500m Flood Buffer\", group = \"Flood Buffer\") %&gt;%\n  addPolygons(data = buildings_wgs84, color = \"grey\", weight = 1, fillOpacity = 0.5,\n              label = ~osm_id, group = \"All Buildings\") %&gt;%\n  addPolygons(data = buildings_at_risk_wgs84, color = \"orange\", weight = 2, fillOpacity = 0.8,\n              label = ~osm_id, group = \"Buildings at Risk\") %&gt;%\n  addLayersControl(\n    overlayGroups = c(\"Stream\", \"Flood Buffer\", \"All Buildings\", \"Buildings at Risk\"),\n    options = layersControlOptions(collapsed = FALSE)\n  ) %&gt;%\n  addLegend(position = \"bottomright\",\n            colors = c(\"blue\", \"red\", \"grey\", \"orange\"),\n            labels = c(\"Stream\", \"Flood Buffer\", \"All Buildings\", \"Buildings at Risk\"),\n            opacity = 0.8)"
+  },
+  {
+    "objectID": "index.html#conclusions",
+    "href": "index.html#conclusions",
+    "title": "Buffalo Creek Flood Risk Assessment",
+    "section": "Conclusions",
+    "text": "Conclusions\nA 500-meter buffer around Buffalo Creek identifies buildings potentially exposed to flooding.\nFuture work could include interactive maps, multiple flood return periods, and more detailed infrastructure data."
+  },
+  {
+    "objectID": "about.html",
+    "href": "about.html",
+    "title": "About",
+    "section": "",
+    "text": "About this site\n\n1 + 1\n\n[1] 2"
+  },
+  {
+    "objectID": "data/Readme.html",
+    "href": "data/Readme.html",
+    "title": "Data Folder",
+    "section": "",
+    "text": "Data Folder\nPlace any data needed by your analysis in this folder. Please do not store large files here. Then read in any data using the ‘data’ path. For example, read_csv(\"data/data.csv\")."
+  }
+]
