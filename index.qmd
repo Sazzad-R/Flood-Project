@@ -7,6 +7,8 @@ date-format: long
 code-fold: true
 code-tools:
   toggle: true
+execute: 
+  cache: true
 ---
 
 # Introduction
@@ -40,7 +42,7 @@ These libraries allow downloading, processing, and visualizing both raster and v
 
 
 ```{r message=FALSE, warning=FALSE}
-library(nhdplusTools)
+
 library(sf)
 library(terra)
 library(elevatr)
@@ -52,8 +54,11 @@ library(leaflet)
 library(htmlwidgets)
 library(knitr)
 library(tmap)
-```
 
+install.packages("remotes")
+remotes::install_github("DOI-USGS/nhdplusTools")
+library(nhdplusTools)
+```
 
 ## Digital Elevation Model (DEM)
 
