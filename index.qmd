@@ -133,8 +133,12 @@ Buffer is transformed back to WGS84 for mapping and spatial intersection with bu
 buffalo_creek_proj <- st_transform(buffalo_creek, crs = 32617) # UTM zone for your area
 stream_buffer <- st_buffer(buffalo_creek_proj, dist = 500) # 500 meters
 
+# Union multiple buffer polygons into one
+stream_buffer <- st_union(stream_buffer)
+
 # Transform back to WGS84 for plotting or OSM intersection
 stream_buffer_wgs84 <- st_transform(stream_buffer, crs = 4326)
+
 
 # Plot buffer and stream
 plot(st_geometry(stream_buffer_wgs84), col = rgb(1,0,0,0.2), main = "Buffalo Creek 500m Flood Buffer")
@@ -275,4 +279,3 @@ leaflet() %>%
 A 500-meter buffer around Buffalo Creek identifies buildings potentially exposed to flooding.
 
 Future work could include interactive maps, multiple flood return periods, and more detailed infrastructure data.
-aaaa
