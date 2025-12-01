@@ -233,6 +233,8 @@ ggplot(summary_df, aes(x = Status, y = Count, fill = Status)) +
 
 
 ## Interactive Leaflet Map
+This interactive map allows toggling layers for better visualization of flood risk areas.
+
 ```{r message=FALSE, warning=FALSE}
 library(leaflet)
 library(sf)
@@ -268,4 +270,3 @@ leaflet() %>%
 A 500-meter buffer around Buffalo Creek identifies buildings potentially exposed to flooding.
 
 Future work could include interactive maps, multiple flood return periods, and more detailed infrastructure data.
-
